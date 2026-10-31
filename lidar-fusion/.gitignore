@@ -1,0 +1,4 @@
+results/*_full_report.txt
+vis/
+*.pt
+__pycache__/

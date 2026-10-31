@@ -69,7 +69,86 @@ def false_positives_by_distance(dets, gts, score_thr=0.5, match_dist=2.0, split=
     return near, far
 
 
+def rotate_iou_torch(boxes, query_boxes, criterion=-1, device_id=0):
+    """Drop-in replacement for OpenPCDet's numba-CUDA `rotate_iou_gpu_eval`.
+
+    The KITTI evaluation needs the overlap of rotated rectangles on the ground
+    plane. OpenPCDet computes it with numba's CUDA support, which crashes on
+    newer NVIDIA drivers. This computes the same thing with OpenPCDet's own
+    compiled CUDA op (the one PointPillars' NMS uses).
+
+    Boxes are [cx, cy, size_x, size_y, angle]. The numba version rotates the
+    box corners clockwise by `angle`; OpenPCDet's op rotates counter-clockwise
+    by `heading`, so heading = -angle gives exactly the same rectangle.
+    criterion: -1 IoU, 0 overlap / area of `boxes`, 1 overlap / area of
+    `query_boxes`, 2 raw overlap area (the same meanings as the original).
+    """
+    import torch
+    from pcdet.ops.iou3d_nms import iou3d_nms_cuda
+
+    boxes = np.asarray(boxes)
+    query_boxes = np.asarray(query_boxes)
+    n, k = len(boxes), len(query_boxes)
+    if n == 0 or k == 0:
+        return np.zeros((n, k), dtype=boxes.dtype)
+
+    def to_7dof(b):
+        t = torch.zeros((len(b), 7), dtype=torch.float32)
+        b = torch.from_numpy(np.ascontiguousarray(b, dtype=np.float32))
+        t[:, 0], t[:, 1] = b[:, 0], b[:, 1]  # centre
+        t[:, 3], t[:, 4] = b[:, 2], b[:, 3]  # sizes along the box's own axes
+        t[:, 5] = 1.0                        # height (unused for ground-plane overlap)
+        t[:, 6] = -b[:, 4]                   # heading, opposite rotation convention
+        return t.cuda().contiguous()
+
+    overlap = torch.zeros((n, k), dtype=torch.float32, device="cuda")
+    iou3d_nms_cuda.boxes_overlap_bev_gpu(to_7dof(boxes), to_7dof(query_boxes), overlap)
+    inter = overlap.cpu().numpy().astype(np.float64)
+
+    area_a = (boxes[:, 2] * boxes[:, 3])[:, None]
+    area_b = (query_boxes[:, 2] * query_boxes[:, 3])[None, :]
+    if criterion == -1:
+        out = inter / (area_a + area_b - inter)
+    elif criterion == 0:
+        out = inter / area_a
+    elif criterion == 1:
+        out = inter / area_b
+    else:
+        out = inter
+    return out.astype(boxes.dtype)
+
+
+def check_rotate_iou():
+    """Quick check that the replacement matches the original's geometry,
+    including the rotation direction. Fails loudly instead of giving wrong AP."""
+    a = np.array([[0.0, 0.0, 4.0, 2.0, 0.3]])
+    assert abs(rotate_iou_torch(a, a)[0, 0] - 1.0) < 1e-4, "identical boxes should give IoU 1"
+    turned = np.array([[0.0, 0.0, 4.0, 2.0, 0.3 + np.pi / 2]])
+    assert abs(rotate_iou_torch(a, turned)[0, 0] - 1 / 3) < 1e-3, "90-degree turn should give IoU 1/3"
+    # A small square placed along the long box's axis, using the original's
+    # clockwise convention. With the wrong rotation direction it misses entirely.
+    long_box = np.array([[0.0, 0.0, 4.0, 1.0, 0.5]])
+    p = (1.5 * np.cos(0.5), -1.5 * np.sin(0.5))
+    square = np.array([[p[0], p[1], 0.4, 0.4, 0.5]])
+    assert abs(rotate_iou_torch(long_box, square, criterion=2)[0, 0] - 0.16) < 1e-3, \
+        "rotation direction mismatch"
+
+
+def install_rotate_iou_replacement():
+    """Make OpenPCDet's evaluation import our function instead of the numba
+    module (whose CUDA code crashes when it is merely imported)."""
+    import sys
+    import types
+    name = "pcdet.datasets.kitti.kitti_object_eval_python.rotate_iou"
+    if name not in sys.modules:
+        module = types.ModuleType(name)
+        module.rotate_iou_gpu_eval = rotate_iou_torch
+        sys.modules[name] = module
+        check_rotate_iou()
+
+
 def evaluate(gt_annos, dt_annos):
+    install_rotate_iou_replacement()
     from pcdet.datasets.kitti.kitti_object_eval_python import eval as kitti_eval
     text, ap = kitti_eval.get_official_eval_result(copy.deepcopy(gt_annos), copy.deepcopy(dt_annos), ["Car"])
     return text, ap

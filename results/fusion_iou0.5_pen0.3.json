@@ -1,0 +1,26 @@
+{
+  "iou": 0.5,
+  "penalty": 0.3,
+  "lidar_only": {
+    "Car_3d/easy_R40": 87.78148454455159,
+    "Car_3d/moderate_R40": 78.41582997416172,
+    "Car_3d/hard_R40": 75.20024723272927,
+    "Car_bev/moderate_R40": 88.07586221129664
+  },
+  "fused": {
+    "Car_3d/easy_R40": 88.20180867096958,
+    "Car_3d/moderate_R40": 78.3048588083094,
+    "Car_3d/hard_R40": 74.20035169878535,
+    "Car_bev/moderate_R40": 88.01053610374252
+  },
+  "false_positives_lidar_only": {
+    "0-30m": 476,
+    ">30m": 955
+  },
+  "false_positives_fused": {
+    "0-30m": 569,
+    ">30m": 2320
+  },
+  "fusion_ms_per_frame": 1.439,
+  "projection_check_px": 0.056
+}

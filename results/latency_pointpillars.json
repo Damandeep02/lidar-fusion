@@ -1,0 +1,25 @@
+{
+  "FP32": {
+    "load + pillarize (CPU)": 106.94,
+    "copy to GPU": 0.97,
+    "PillarVFE": 0.86,
+    "PointPillarScatter": 0.48,
+    "BaseBEVBackbone": 3.94,
+    "AnchorHeadSingle": 0.87,
+    "post-processing (NMS)": 2.91,
+    "total": 116.96,
+    "total GPU part": 10.03
+  },
+  "FP16": {
+    "load + pillarize (CPU)": 10.85,
+    "copy to GPU": 0.96,
+    "PillarVFE": 0.81,
+    "PointPillarScatter": 0.43,
+    "BaseBEVBackbone": 3.2,
+    "AnchorHeadSingle": 0.87,
+    "post-processing (NMS)": 2.9,
+    "total": 20.01,
+    "total GPU part": 9.16
+  },
+  "gpu": "NVIDIA A100-PCIE-40GB"
+}
